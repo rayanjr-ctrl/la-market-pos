@@ -275,7 +275,7 @@ body{margin:0}
       </aside>
     </div>
     <div class="overlay" id="picker" hidden></div>
-    <div class="overlay" id="staffbox" hidden><form class="picker" id="stafform"><h3>Who is taking orders on this device?</h3><div class="field"><label for="staffname">Your name</label><input id="staffname" autocomplete="off" placeholder="e.g. Esraa"></div><div class="meta">Your name is saved on every order you place.</div><button class="primary" type="submit">Start</button></form></div>
+    <div class="overlay" id="staffbox" hidden><form class="picker" id="stafform"><h3>Who is taking orders on this device?</h3><div class="field"><label for="staffname">Your name</label><input id="staffname" autocomplete="off" placeholder="e.g. Esraa"></div><div class="chips" id="staffrecent"></div><div class="meta">Tap your name or type it. It's saved on every order you place.</div><button class="primary" type="submit">Start</button></form></div>
     <div class="bagbar"><span id="barinfo">Bag is empty</span><button class="primary" id="openbag" type="button">Open bag</button></div>
   </section>
 
@@ -466,7 +466,14 @@ function freePart(pi, bu){ bu = bu || bagUse(); return ITEMS.filter(c => c.p ===
 
 /* ---------- tabs ---------- */
 document.querySelectorAll("nav.tabs button").forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
+function lockManager(){
+  S.isAdmin = false; S.pin = ""; S.confirmCancel = null;
+  try { sessionStorage.removeItem("lam_pin"); } catch(e){}
+  ["#pinmsg","#pinmsg2"].forEach(id => { const el = $(id); if (el) el.textContent = ""; });
+  $("#pinform2").hidden = false; $("#stockform").hidden = true; showTools();
+}
 function setTab(t){
+  if (S.tab !== t && S.isAdmin) lockManager();   // leaving Manager (or Orders after unlocking) asks for the PIN again
   S.tab = t;
   document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === t)));
   for (const v of ["sell","orders","summary","stock"]) $("#view-"+v).hidden = v !== t;
@@ -477,7 +484,7 @@ function setTab(t){
 
 /* ---------- finder ---------- */
 function renderChips(){
-  const opts = [[-1,"All products"], ...PRODUCTS.map((p,i)=>[i, COMPONENT[i] ? p + " (stock)" : p])];
+  const opts = [[-1,"All products"], ...PRODUCTS.map((p,i)=>[i, p]).filter(([i]) => !COMPONENT[i])];
   $("#prodchips").innerHTML = opts.map(([i,p]) => `<button class="chip" data-p="${i}" aria-pressed="${S.prod===i}">${esc(p)}</button>`).join("");
 }
 $("#prodchips").addEventListener("click", e => { const b = e.target.closest(".chip"); if(!b) return; S.prod = Number(b.dataset.p); renderChips(); renderResults(); });
@@ -723,7 +730,7 @@ async function unlock(input, msg){
   const pin = input.value.trim(); if (!pin) return;
   msg.textContent = "Checking…";
   try { const ok = await server("checkPin", pin);
-    if (ok){ S.pin = pin; S.isAdmin = true; try { sessionStorage.setItem("lam_pin", pin); } catch(e){} input.value = ""; afterUnlock(); }
+    if (ok){ S.pin = pin; S.isAdmin = true; input.value = ""; afterUnlock(); }
     else msg.textContent = "Wrong PIN."; }
   catch(e){ msg.textContent = "No connection. Try again."; }
 }
@@ -844,15 +851,20 @@ $("#stockform").addEventListener("submit", async e => {
   finally { btn.disabled = false; btn.textContent = "Add to stock"; }
 });
 
+function recentStaff(){ return lsGet("lamp_recent_staff", []); }
 function askStaff(){
+  const rec = recentStaff();
+  $("#staffrecent").innerHTML = rec.length ? rec.map(n => `<button type="button" class="chip" data-who="${esc(n)}">${esc(n)}</button>`).join("") : "";
+  $("#staffname").value = "";
   $("#staffbox").hidden = false; setTimeout(() => $("#staffname").focus(), 50);
 }
 $("#stafform").addEventListener("submit", e => {
   e.preventDefault(); const v = $("#staffname").value.trim(); if (!v) return;
-  S.staff = v; try { localStorage.setItem("lam_staff", v); } catch(e){}
+  S.staff = v; try { const rec = [v, ...recentStaff().filter(x => x.toLowerCase() !== v.toLowerCase())].slice(0, 6); lsSet("lamp_recent_staff", rec); } catch(e){}
   $("#staffbox").hidden = true; $("#whoami").textContent = v;
 });
-$("#changestaff").addEventListener("click", () => { $("#staffname").value = S.staff; askStaff(); });
+$("#changestaff").addEventListener("click", () => askStaff());
+$("#staffrecent").addEventListener("click", e => { const b = e.target.closest("[data-who]"); if (!b) return; $("#staffname").value = b.dataset.who; $("#stafform").requestSubmit(); });
 let lastOk = 0;
 async function refresh(){
   try {
@@ -921,7 +933,7 @@ $("#exp-backup").addEventListener("click", async () => {
 function showTools(){ $("#mtools").hidden = !S.isAdmin; }
 $("#pinchange").addEventListener("submit", e => { e.preventDefault(); if (!S.isAdmin) return; const v = $("#newpin").value.trim();
   if (v.length < 4){ $("#pinchmsg").textContent = "Use at least 4 digits."; return; }
-  const st = settings(); st.pin = v; lsSet(DBK.set, st); S.pin = v; try { sessionStorage.setItem("lam_pin", v); } catch(e2){} $("#newpin").value = ""; $("#pinchmsg").textContent = "PIN changed."; });
+  const st = settings(); st.pin = v; lsSet(DBK.set, st); S.pin = v; $("#newpin").value = ""; $("#pinchmsg").textContent = "PIN changed."; });
 $("#updprod").addEventListener("click", async () => {
   const m = $("#updmsg"); m.textContent = "Downloading…";
   try { const r = await fetch("products.json?t=" + Date.now(), { cache: "no-store" }); if (!r.ok) throw new Error(r.status);
@@ -955,13 +967,13 @@ $("#clearall").addEventListener("click", async () => {
   lsSet("lamp_deleted_backup", data); lsSet(DBK.orders, []); $("#clearconf").value = ""; m.textContent = "All orders deleted. Next order is #1. (Added stock is kept – use Reset product list to remove it.)"; await refresh();
 });
 /* ---------- start ---------- */
-const CACHE_NAME = "la-market-pos-v2";
+const CACHE_NAME = "la-market-pos-v3";
 async function loadCatalogIfMissing(){
   if (lsGet(DBK.cat, null)) return true;
   try { const r = await fetch("products.json"); if (!r.ok) return false; lsSet(DBK.cat, await r.json()); return true; } catch(e){ return false; }
 }
 async function boot(){
-  try { S.staff = localStorage.getItem("lam_staff") || ""; S.pin = sessionStorage.getItem("lam_pin") || ""; } catch(e){}
+  S.staff = ""; S.pin = "";   // every time the app opens: who is using it, and manager locked
   $("#whoami").textContent = S.staff || "Not set";
   if (S.pin && pinOk(S.pin)) S.isAdmin = true; else S.pin = "";
   $("#pinform2").hidden = S.isAdmin; $("#stockform").hidden = !S.isAdmin; showTools();
@@ -970,7 +982,13 @@ async function boot(){
   await refresh();
   try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch(e){}
   if ("serviceWorker" in navigator) { try { await navigator.serviceWorker.register("sw.js"); } catch(e){} }
-  if (!S.staff) askStaff();
+  askStaff();
+  // coming back after the iPad was locked / app in background for 5+ minutes also asks again
+  let hiddenAt = 0;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") hiddenAt = Date.now();
+    else if (hiddenAt && Date.now() - hiddenAt > 5*60*1000){ if (S.isAdmin) lockManager(); S.staff = ""; $("#whoami").textContent = "Not set"; askStaff(); }
+  });
 }
 boot();
 </script>
