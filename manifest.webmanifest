@@ -1,0 +1,14 @@
+{
+  "name": "LA Market POS",
+  "short_name": "LA Market",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FBF7F9",
+  "theme_color": "#8E2A5B",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
