@@ -222,7 +222,7 @@ body{margin:0}
       <button id="tab-stock" role="tab" aria-selected="false" data-tab="stock">Manager</button>
     </nav>
     <div class="who">Taking orders: <b id="whoami">–</b> <button class="linkbtn" id="changestaff" type="button">change</button></div>
-    <div class="status"><span class="dot" id="livedot"></span><span id="livetxt">Connecting…</span></div>
+    <div class="status"><span class="dot" id="livedot"></span><span id="livetxt">Connecting…</span> <span class="meta" id="appver">v4</span></div>
   </header>
   <div id="banner" class="banner" hidden></div>
 
@@ -967,7 +967,7 @@ $("#clearall").addEventListener("click", async () => {
   lsSet("lamp_deleted_backup", data); lsSet(DBK.orders, []); $("#clearconf").value = ""; m.textContent = "All orders deleted. Next order is #1. (Added stock is kept – use Reset product list to remove it.)"; await refresh();
 });
 /* ---------- start ---------- */
-const CACHE_NAME = "la-market-pos-v3";
+const CACHE_NAME = "la-market-pos-v4";
 async function loadCatalogIfMissing(){
   if (lsGet(DBK.cat, null)) return true;
   try { const r = await fetch("products.json"); if (!r.ok) return false; lsSet(DBK.cat, await r.json()); return true; } catch(e){ return false; }
@@ -981,7 +981,19 @@ async function boot(){
   await loadCatalogIfMissing();
   await refresh();
   try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch(e){}
-  if ("serviceWorker" in navigator) { try { await navigator.serviceWorker.register("sw.js"); } catch(e){} }
+  if ("serviceWorker" in navigator) {
+    try {
+      const hadSW = !!navigator.serviceWorker.controller;
+      const reg = await navigator.serviceWorker.register("sw.js", { updateViaCache: "none" });
+      reg.update().catch(() => {});                       // check GitHub for a newer version every time the app opens (if online)
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!hadSW || reloaded) return;
+        if (!S.bag.length) { reloaded = true; location.reload(); }   // new version installed: reload now if no order in progress
+        else banner("App updated – it will switch to the new version next time it opens.");
+      });
+    } catch(e){}
+  }
   askStaff();
   // coming back after the iPad was locked / app in background for 5+ minutes also asks again
   let hiddenAt = 0;
