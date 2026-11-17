@@ -208,6 +208,9 @@ h2.sec{font-size:1.15rem;margin:22px 0 4px}
 .preview b{font-variant-numeric:tabular-nums}
 html{background:var(--bg)}
 body{margin:0}
+.whochip{display:inline-flex;align-items:center;gap:2px;margin:0 6px 6px 0}
+.whox{border:0;background:transparent;color:#999;font-size:20px;line-height:1;padding:4px 6px;cursor:pointer}
+.whox:hover{color:#b00020}
 </style>
 </head>
 <body>
@@ -222,7 +225,7 @@ body{margin:0}
       <button id="tab-stock" role="tab" aria-selected="false" data-tab="stock">Manager</button>
     </nav>
     <div class="who">Taking orders: <b id="whoami">–</b> <button class="linkbtn" id="changestaff" type="button">change</button></div>
-    <div class="status"><span class="dot" id="livedot"></span><span id="livetxt">Connecting…</span> <span class="meta" id="appver">v4</span></div>
+    <div class="status"><span class="dot" id="livedot"></span><span id="livetxt">Connecting…</span> <span class="meta" id="appver">v5</span></div>
   </header>
   <div id="banner" class="banner" hidden></div>
 
@@ -503,7 +506,7 @@ function matches(it){
 function renderResults(){
   const LIMIT = 120;
   if (!S.q && S.prod < 0){
-    $("#results").innerHTML = `<div class="empty"><strong>Type a name to start</strong>Search ${fmt(ITEMS.length - KEY_ITEMS.length)} designs across ${PRODUCTS.length - COMPONENT.filter(Boolean).length} products. Type a product (FLORA, KEYBOARD, STANLEY…) or tap a product above to browse it.</div>`;
+    $("#results").innerHTML = `<div class="empty"><strong>Type a name to start</strong>Search ${fmt(ITEMS.length - KEY_ITEMS.length)} designs across ${PRODUCTS.length - COMPONENT.filter(Boolean).length} products. Type a product (FLORA, STANLEY, FRAME…) or tap a product above to browse it.</div>`;
     $("#rmeta").textContent = ""; $("#rhint").textContent = ""; return;
   }
   let list = ITEMS.filter(matches);
@@ -854,7 +857,7 @@ $("#stockform").addEventListener("submit", async e => {
 function recentStaff(){ return lsGet("lamp_recent_staff", []); }
 function askStaff(){
   const rec = recentStaff();
-  $("#staffrecent").innerHTML = rec.length ? rec.map(n => `<button type="button" class="chip" data-who="${esc(n)}">${esc(n)}</button>`).join("") : "";
+  $("#staffrecent").innerHTML = rec.length ? rec.map(n => `<span class="whochip"><button type="button" class="chip" data-who="${esc(n)}">${esc(n)}</button><button type="button" class="whox" data-forget="${esc(n)}" aria-label="Remove ${esc(n)}" title="Remove this name">×</button></span>`).join("") : "";
   $("#staffname").value = "";
   $("#staffbox").hidden = false; setTimeout(() => $("#staffname").focus(), 50);
 }
@@ -864,7 +867,10 @@ $("#stafform").addEventListener("submit", e => {
   $("#staffbox").hidden = true; $("#whoami").textContent = v;
 });
 $("#changestaff").addEventListener("click", () => askStaff());
-$("#staffrecent").addEventListener("click", e => { const b = e.target.closest("[data-who]"); if (!b) return; $("#staffname").value = b.dataset.who; $("#stafform").requestSubmit(); });
+$("#staffrecent").addEventListener("click", e => {
+  const x = e.target.closest("[data-forget]");
+  if (x) { lsSet("lamp_recent_staff", recentStaff().filter(n => n !== x.dataset.forget)); x.parentElement.remove(); $("#staffname").focus(); return; }
+  const b = e.target.closest("[data-who]"); if (!b) return; $("#staffname").value = b.dataset.who; $("#stafform").requestSubmit(); });
 let lastOk = 0;
 async function refresh(){
   try {
@@ -967,7 +973,7 @@ $("#clearall").addEventListener("click", async () => {
   lsSet("lamp_deleted_backup", data); lsSet(DBK.orders, []); $("#clearconf").value = ""; m.textContent = "All orders deleted. Next order is #1. (Added stock is kept – use Reset product list to remove it.)"; await refresh();
 });
 /* ---------- start ---------- */
-const CACHE_NAME = "la-market-pos-v4";
+const CACHE_NAME = "la-market-pos-v5";
 async function loadCatalogIfMissing(){
   if (lsGet(DBK.cat, null)) return true;
   try { const r = await fetch("products.json"); if (!r.ok) return false; lsSet(DBK.cat, await r.json()); return true; } catch(e){ return false; }
