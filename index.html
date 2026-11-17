@@ -311,6 +311,7 @@ body{margin:0}
       <h2 class="sec" style="margin-top:0">Manager tools</h2>
       <form class="pinrow" id="pinchange" style="margin:0"><span class="meta">Change manager PIN:</span><input id="newpin" type="password" inputmode="numeric" autocomplete="off" placeholder="New PIN" aria-label="New PIN"><button class="ghost" type="submit">Save PIN</button><span class="meta" id="pinchmsg"></span></form>
       <div class="pinrow" style="margin:0"><span class="meta">Product list version <b id="catver">–</b>:</span><button class="ghost" id="updprod" type="button">Update product list (needs internet)</button><span class="meta" id="updmsg"></span></div>
+      <div class="pinrow" style="margin:0"><span class="meta">Undo all stock changes made on this iPad (only when there are no orders):</span><button class="danger" id="resetcat" type="button">Reset product list to original</button><span class="meta" id="resetmsg"></span></div>
       <div class="pinrow" style="margin:0"><span class="meta">Restore orders from a backup file:</span><input id="restorefile" type="file" accept=".json,application/json"><span class="meta" id="restmsg"></span></div>
       <div class="pinrow" style="margin:0"><span class="meta">After the dry run, delete all test orders – type CLEAR:</span><input id="clearconf" autocomplete="off" placeholder="CLEAR" style="width:110px"><button class="danger" id="clearall" type="button">Delete all orders</button><span class="meta" id="clearmsg"></span></div>
     </section>
@@ -399,12 +400,32 @@ const LOCAL = {
     if (!product || !color || !(qty >= 1 && qty <= 999)) return { ok:false, error:"invalid", message:"Product, color and a quantity of 1 or more are needed." };
     const U = v => String(v||"").trim().toUpperCase();
     const hit = cat.items.find(x => x.product === product && U(x.n) === name && U(x.k) === U(color) && U(x.d) === U(detail));
-    if (hit){ hit.s += qty; if (note) hit.y = note; lsSet(DBK.cat, cat); return { ok:true, mode:"increased", code: hit.c, start: hit.s }; }
+    cat.adds = cat.adds || [];
+    const label = `${name || product} · ${product} · ${color}${detail ? " · " + detail : ""}`;
+    if (hit){ hit.s += qty; if (note) hit.y = note; cat.adds.push({ id: Date.now(), code: hit.c, qty, mode: "increased", label, at: nowLocal() }); lsSet(DBK.cat, cat); return { ok:true, mode:"increased", code: hit.c, start: hit.s }; }
     const max = cat.items.reduce((m,x) => { const r = /^[A-Z]+-(\d+)$/.exec(x.c); return r ? Math.max(m, Number(r[1])) : m; }, 0);
     const code = "N-" + String(max+1).padStart(4,"0");
-    cat.items.push({ c: code, n: name, product, k: color, d: detail, s: qty, y: note, r: 0 }); lsSet(DBK.cat, cat);
+    cat.items.push({ c: code, n: name, product, k: color, d: detail, s: qty, y: note, r: 0, added: true });
+    cat.adds.push({ id: Date.now(), code, qty, mode: "added", label, at: nowLocal() }); lsSet(DBK.cat, cat);
     return { ok:true, mode:"added", code, start: qty };
   }
+};
+LOCAL.undoAdd = function(pin, id){
+  if (!pinOk(pin)) return { ok:false, error:"pin" };
+  const cat = lsGet(DBK.cat, null), adds = cat.adds || [], a = adds.find(x => x.id === id);
+  if (!a) return { ok:false, message:"Already removed." };
+  const it = cat.items.find(x => x.c === a.code); const sold = usedByCode(lsGet(DBK.orders, []))[a.code] || 0;
+  if (it){
+    if (it.s - a.qty < sold) return { ok:false, message:`Can't remove – ${sold} of these were already sold. Cancel those orders first.` };
+    it.s -= a.qty;
+    if (it.added && it.s <= 0 && !sold) cat.items = cat.items.filter(x => x !== it);
+  }
+  cat.adds = adds.filter(x => x !== a); lsSet(DBK.cat, cat); return { ok:true };
+};
+LOCAL.resetCatalog = function(pin, fresh){
+  if (!pinOk(pin)) return { ok:false, error:"pin" };
+  if (lsGet(DBK.orders, []).length) return { ok:false, message:"Delete all orders first (type CLEAR below), then reset." };
+  lsSet(DBK.cat, fresh); return { ok:true, items: fresh.items.length };
 };
 /* same calling style as before, but answered on this device */
 function server(fn, ...args){
@@ -756,7 +777,19 @@ function rerenderAll(){
 /* ---------- add stock (manager) ---------- */
 const SF = { qty: 1, log: [] };
 const normU = v => String(v || "").trim().toUpperCase();
+function renderAddLog(){
+  const adds = ((lsGet(DBK.cat, {}) || {}).adds || []).slice().reverse();
+  $("#sf-log").innerHTML = adds.length ? adds.map(a => `<article class="order"><div class="onum">+${a.qty}</div><div><div class="owho">${esc(a.label)}</div><div class="meta">${a.mode === "increased" ? "Added to existing " + esc(a.code) : "New item " + esc(a.code)} · ${esc(cairo(a.at))}</div></div><div class="oright">${S.isAdmin ? `<button class="danger" data-undo="${a.id}">Remove</button>` : ""}</div></article>`).join("")
+    : `<div class="empty"><strong>Nothing added yet</strong>Pieces you add here are available to sell straight away. You can remove them here if added by mistake.</div>`;
+}
+$("#sf-log").addEventListener("click", async e => {
+  const b = e.target.closest("[data-undo]"); if (!b) return;
+  const r = await server("undoAdd", S.pin, Number(b.dataset.undo));
+  if (!r.ok){ b.textContent = r.message || "Couldn't remove"; return; }
+  await refresh(); renderAddLog();
+});
 function renderStockForm(){
+  renderAddLog();
   $("#pinform2").hidden = S.isAdmin; $("#stockform").hidden = !S.isAdmin;
   if (!S.isAdmin || !S.loaded) return;
   const sel = $("#sf-product"), cur = sel.value;
@@ -802,12 +835,11 @@ $("#stockform").addEventListener("submit", async e => {
     const r = await server("addStock", S.pin, item);
     if (!r || !r.ok){ err.textContent = r && r.error === "pin" ? "Manager PIN changed. Unlock again." : (r && r.message) || "Couldn't save. Try again."; err.hidden = false; return; }
     const label = `${item.name || item.product} · ${item.product} · ${item.color}${item.detail ? " · " + item.detail : ""}`;
-    SF.log.unshift(`<article class="order"><div class="onum">+${item.qty}</div><div><div class="owho">${esc(label)}</div><div class="meta">${r.mode === "increased" ? `Added to ${esc(r.code)} – start stock now ${r.start}` : `New item ${esc(r.code)} – ${r.start} in stock`}</div></div><div class="oright"><span class="pill cash">Saved</span></div></article>`);
-    $("#sf-log").innerHTML = SF.log.join("");
+
     $("#sf-done").innerHTML = `<div class="done">Saved<span class="big">${esc(r.code)}</span>${esc(label)} · ${r.mode === "increased" ? "now " + r.start + " in start stock" : r.start + " in stock"}</div>`;
     $("#sf-done").hidden = false;
     $("#sf-name").value = ""; $("#sf-note").value = ""; SF.qty = 1;
-    await refresh(); sfPreview();
+    await refresh(); sfPreview(); renderAddLog();
   } catch(e2){ err.textContent = "No connection. Try again."; err.hidden = false; }
   finally { btn.disabled = false; btn.textContent = "Add to stock"; }
 });
@@ -898,6 +930,17 @@ $("#updprod").addEventListener("click", async () => {
     m.textContent = `Updated: ${res.updated} items refreshed, ${res.added} new. Orders kept.`; await refresh();
   } catch(e){ m.textContent = "Couldn't download – check the internet and try again."; }
 });
+$("#resetcat").addEventListener("click", async () => {
+  const m = $("#resetmsg");
+  if (S.orders.length){ m.textContent = "Delete all orders first (type CLEAR below), then reset."; return; }
+  if (!S.confirmReset){ S.confirmReset = true; m.textContent = "Tap again to confirm."; setTimeout(() => S.confirmReset = false, 5000); return; }
+  S.confirmReset = false; m.textContent = "Resetting…";
+  try { let r = await caches.match("products.json", { ignoreSearch: true }); if (!r) r = await fetch("products.json");
+    const fresh = await r.json(); const res = await server("resetCatalog", S.pin, fresh);
+    m.textContent = res.ok ? `Product list reset (${res.items} items). Added stock removed.` : (res.message || "Couldn't reset.");
+    await refresh(); renderAddLog();
+  } catch(e){ m.textContent = "Couldn't read the original product list."; }
+});
 $("#restorefile").addEventListener("change", async e => {
   const f = e.target.files[0], m = $("#restmsg"); if (!f) return;
   try { const d = JSON.parse(await f.text()); if (d.kind !== "la-market-pos-backup") throw new Error("not a backup");
@@ -909,10 +952,10 @@ $("#clearall").addEventListener("click", async () => {
   const m = $("#clearmsg"); if (!S.isAdmin) return;
   if ($("#clearconf").value.trim().toUpperCase() !== "CLEAR"){ m.textContent = "Type CLEAR first."; return; }
   const data = { kind: "la-market-pos-backup", saved: new Date().toISOString(), catalog: lsGet(DBK.cat, null), orders: lsGet(DBK.orders, []) };
-  lsSet("lamp_deleted_backup", data); lsSet(DBK.orders, []); $("#clearconf").value = ""; m.textContent = "All orders deleted. Next order is #1."; await refresh();
+  lsSet("lamp_deleted_backup", data); lsSet(DBK.orders, []); $("#clearconf").value = ""; m.textContent = "All orders deleted. Next order is #1. (Added stock is kept – use Reset product list to remove it.)"; await refresh();
 });
 /* ---------- start ---------- */
-const CACHE_NAME = "la-market-pos-v1";
+const CACHE_NAME = "la-market-pos-v2";
 async function loadCatalogIfMissing(){
   if (lsGet(DBK.cat, null)) return true;
   try { const r = await fetch("products.json"); if (!r.ok) return false; lsSet(DBK.cat, await r.json()); return true; } catch(e){ return false; }
