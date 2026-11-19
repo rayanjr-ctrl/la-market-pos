@@ -1,5 +1,5 @@
 /* LA Market POS – keeps the app working with no internet */
-const CACHE_NAME = "la-market-pos-v6";
+const CACHE_NAME = "la-market-pos-v7";
 const FILES = ["./", "index.html", "products.json", "xlsx.full.min.js", "manifest.webmanifest", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 // install: always fetch fresh copies from the site, never the browser's old saved ones
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(FILES.map(f => new Request(f, { cache: "reload" })))).then(() => self.skipWaiting())); });

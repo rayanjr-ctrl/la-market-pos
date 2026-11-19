@@ -225,7 +225,7 @@ body{margin:0}
       <button id="tab-stock" role="tab" aria-selected="false" data-tab="stock">Manager</button>
     </nav>
     <div class="who">Taking orders: <b id="whoami">–</b> <button class="linkbtn" id="changestaff" type="button">change</button></div>
-    <div class="status"><span class="dot" id="livedot"></span><span id="livetxt">Connecting…</span> <span class="meta" id="appver">v6</span></div>
+    <div class="status"><span class="dot" id="livedot"></span><span id="livetxt">Connecting…</span> <span class="meta" id="appver">v7</span></div>
   </header>
   <div id="banner" class="banner" hidden></div>
 
@@ -445,7 +445,7 @@ function mergeCatalog(fresh){
   lsSet(DBK.cat, cur); return { added, updated };
 }
 
-const SHORT = {"Jersey Holder - Country Teams":"Jersey (Country)","Jersey Holder - Club Teams":"Jersey (Club)","Football Photo Frame":"Football Frame","Jersey Tag Phone Holder":"Jersey Holder","3D Desk Name Tag":"Desk Name Tag","Name Pencil Topper":"Pencil Topper","WandDo Fairy Pay":"Fairy Pay","Polaroid Camera Frame + Boba Can Opener":"Camera + Boba","Stanley Cup Lip Balm Case":"Lip Balm Case"};
+const SHORT = {"Jersey Holder - Country Teams":"Jersey (Country)","Jersey Holder - Club Teams":"Jersey (Club)","Football Photo Frame":"Football Frame","Jersey Tag Phone Holder":"Jersey Holder","3D Desk Name Tag":"Desk Name Tag","Name Pencil Topper":"Pencil Topper","WandDo Fairy Pay":"Fairy Pay","Polaroid Camera Frame + Boba Can Opener":"Camera + Boba","Stanley Cup Lip Balm Case":"Lip Balm Case","WandDo Bot Keychain":"Bot Keychain"};
 const short = p => SHORT[p] || p;
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -980,7 +980,7 @@ $("#clearall").addEventListener("click", async () => {
   lsSet("lamp_deleted_backup", data); lsSet(DBK.orders, []); $("#clearconf").value = ""; m.textContent = "All orders deleted. Next order is #1. (Added stock is kept – use Reset product list to remove it.)"; await refresh();
 });
 /* ---------- start ---------- */
-const CACHE_NAME = "la-market-pos-v6";
+const CACHE_NAME = "la-market-pos-v7";
 async function loadCatalogIfMissing(){
   if (lsGet(DBK.cat, null)) return true;
   try { const r = await fetch("products.json"); if (!r.ok) return false; lsSet(DBK.cat, await r.json()); return true; } catch(e){ return false; }
