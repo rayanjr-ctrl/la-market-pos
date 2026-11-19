@@ -225,7 +225,7 @@ body{margin:0}
       <button id="tab-stock" role="tab" aria-selected="false" data-tab="stock">Manager</button>
     </nav>
     <div class="who">Taking orders: <b id="whoami">–</b> <button class="linkbtn" id="changestaff" type="button">change</button></div>
-    <div class="status"><span class="dot" id="livedot"></span><span id="livetxt">Connecting…</span> <span class="meta" id="appver">v5</span></div>
+    <div class="status"><span class="dot" id="livedot"></span><span id="livetxt">Connecting…</span> <span class="meta" id="appver">v6</span></div>
   </header>
   <div id="banner" class="banner" hidden></div>
 
@@ -301,7 +301,8 @@ body{margin:0}
       <div class="field"><label for="sf-product">Product</label><select id="sf-product"></select></div>
       <div class="field" id="sf-namebox"><label for="sf-name">Name / text on the piece</label><input id="sf-name" autocomplete="off" placeholder="e.g. NOUR" style="text-transform:uppercase"></div>
       <div class="field"><label for="sf-color">Color</label><input id="sf-color" autocomplete="off" list="sf-colors" placeholder="Pick or type a color"><datalist id="sf-colors"></datalist></div>
-      <div class="field"><label for="sf-detail" id="sf-detail-label">Font / Jersey # / Size (optional)</label><input id="sf-detail" autocomplete="off" list="sf-details" placeholder="Pick or leave empty"><datalist id="sf-details"></datalist></div>
+      <div class="field" id="sf-fontbox" hidden><label for="sf-font">Font (Standard or Bubbly)</label><select id="sf-font"><option value="">Choose…</option><option value="Standard font">Standard</option><option value="Bubbly font">Bubbly</option></select></div>
+      <div class="field" id="sf-detailbox"><label for="sf-detail" id="sf-detail-label">Font / Jersey # / Size (optional)</label><input id="sf-detail" autocomplete="off" list="sf-details" placeholder="Pick or leave empty"><datalist id="sf-details"></datalist></div>
       <div class="field"><label for="sf-qty">How many pieces</label>
         <div class="qty" style="grid-row:auto;grid-column:auto"><button type="button" id="sf-minus" aria-label="One less">−</button><output id="sf-qtyv">1</output><button type="button" id="sf-plus" aria-label="One more">+</button></div></div>
       <div class="field"><label for="sf-note">Note (optional)</label><input id="sf-note" autocomplete="off" placeholder="e.g. spelling to double-check"></div>
@@ -501,6 +502,7 @@ function matches(it){
   if (it.n && it.n.includes(S.q)) return true;
   if (COMPONENT[it.p]) return false;
   if (PRODUCTS[it.p].toUpperCase().includes(S.q)) return true;
+  if (/Club Teams/.test(PRODUCTS[it.p]) && String(it.k).toUpperCase().includes(S.q)) return true;   // club tags: search by team (BARCELONA, MADRID, AHLY…)
   return !it.n && (String(it.k).toUpperCase().includes(S.q) || String(it.d).toUpperCase().includes(S.q));   // unnamed items: search by color/shape too
 }
 function renderResults(){
@@ -815,7 +817,10 @@ function sfProductChanged(clear){
   const hasNames = its.some(i => i.n);
   $("#sf-namebox").hidden = !hasNames && its.length > 0;
   $("#sf-name").placeholder = COMPONENT[PRODUCTS.indexOf(p)] ? "e.g. A or ⭐" : "e.g. NOUR";
-  if (clear){ $("#sf-color").value = ""; $("#sf-detail").value = ""; }
+  const isDesk = p === "3D Desk Name Tag";
+  $("#sf-fontbox").hidden = !isDesk; $("#sf-detailbox").hidden = isDesk;
+  if (clear){ $("#sf-color").value = ""; $("#sf-detail").value = ""; $("#sf-font").value = ""; }
+  if (isDesk) $("#sf-detail").value = $("#sf-font").value;
   sfPreview();
 }
 function sfMatch(){
@@ -831,6 +836,7 @@ function sfPreview(){
 }
 $("#sf-product").addEventListener("change", () => sfProductChanged(true));
 ["#sf-name","#sf-color","#sf-detail"].forEach(id => $(id).addEventListener("input", sfPreview));
+$("#sf-font").addEventListener("change", () => { $("#sf-detail").value = $("#sf-font").value; sfPreview(); });
 $("#sf-minus").addEventListener("click", () => { SF.qty = Math.max(1, SF.qty - 1); sfPreview(); });
 $("#sf-plus").addEventListener("click", () => { SF.qty = Math.min(999, SF.qty + 1); sfPreview(); });
 $("#stockform").addEventListener("submit", async e => {
@@ -840,6 +846,7 @@ $("#stockform").addEventListener("submit", async e => {
   const needsName = !$("#sf-namebox").hidden;
   if (needsName && !item.name){ err.textContent = "Type the name or text on the piece."; err.hidden = false; return; }
   if (!item.color){ err.textContent = "Pick or type a color."; err.hidden = false; return; }
+  if (!$("#sf-fontbox").hidden && !item.detail){ err.textContent = "Choose the font: Standard or Bubbly."; err.hidden = false; return; }
   const btn = $("#sf-save"); btn.disabled = true; btn.textContent = "Saving…";
   try {
     const r = await server("addStock", S.pin, item);
@@ -973,10 +980,19 @@ $("#clearall").addEventListener("click", async () => {
   lsSet("lamp_deleted_backup", data); lsSet(DBK.orders, []); $("#clearconf").value = ""; m.textContent = "All orders deleted. Next order is #1. (Added stock is kept – use Reset product list to remove it.)"; await refresh();
 });
 /* ---------- start ---------- */
-const CACHE_NAME = "la-market-pos-v5";
+const CACHE_NAME = "la-market-pos-v6";
 async function loadCatalogIfMissing(){
   if (lsGet(DBK.cat, null)) return true;
   try { const r = await fetch("products.json"); if (!r.ok) return false; lsSet(DBK.cat, await r.json()); return true; } catch(e){ return false; }
+}
+async function applyNewerCatalog(){
+  try {
+    const cur = lsGet(DBK.cat, null); if (!cur) return;
+    const r = await fetch("products.json"); if (!r.ok) return;
+    const fresh = await r.json(); if (!(fresh.version > (cur.version || 0))) return;
+    if (!lsGet(DBK.orders, []).length && !(cur.adds || []).length){ lsSet(DBK.cat, fresh); banner(`Product list updated (version ${fresh.version}, ${fresh.items.length} items).`); }
+    else banner(`A newer product list (version ${fresh.version}) is available. After exporting, go to Manager: delete all orders, then Reset product list.`);
+  } catch(e){}
 }
 async function boot(){
   S.staff = ""; S.pin = "";   // every time the app opens: who is using it, and manager locked
@@ -985,6 +1001,7 @@ async function boot(){
   $("#pinform2").hidden = S.isAdmin; $("#stockform").hidden = !S.isAdmin; showTools();
   renderBag(); $("#results").innerHTML = `<div class="empty"><strong>Loading…</strong>Opening the product list saved on this iPad.</div>`;
   await loadCatalogIfMissing();
+  await applyNewerCatalog();
   await refresh();
   try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch(e){}
   if ("serviceWorker" in navigator) {
